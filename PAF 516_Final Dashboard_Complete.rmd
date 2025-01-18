@@ -1,0 +1,562 @@
+---
+title: "Models of Neighborhood Change in San Diego, CA"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: bootstrap
+    source: embed
+    smart: false
+runtime: shiny
+---
+
+    
+
+```{r global, echo=F}
+
+# PACKAGES 
+
+
+# dashboard layout, widgets, and uploading
+
+library( flexdashboard )
+library( shiny )
+library( rsconnect )
+
+# data wrangling 
+
+library( dplyr )
+
+
+# formatting output
+
+library( DT )
+library( pander )
+library( knitr )
+library( stargazer )
+
+
+# maps
+
+library( ggmap )
+library( leaflet )
+library( viridis )
+library( geojsonio )
+library( sp )
+library( sf )
+library( tmap )
+library( pals )
+```
+
+
+```{r}
+#load dorling cartogram
+# from local file path
+#sd <- geojson_read( "C:\\Users\\swest\\Desktop\\Grad School\\Spring 2024\\PAF 516\\-sd_dorling_final.geojson", what="sp" )
+
+#sd2 <- spTransform(sd, CRS("+init=epsg:3395"))
+
+github.url <- "https://raw.githubusercontent.com/swest235/paf516/main/-sd_dorling_final.geojson"
+sd <- geojson_read(x = github.url, what = "sp")
+sd2<- spTransform(sd, CRS("+init=epsg:3395"))
+
+sd.sf<- st_as_sf(sd2)
+
+d<- as.data.frame(sd.sf)
+
+#current_bbox <- st_box(geo_sf)   **Suuspect bb error was cause for object object error on dashboard - GPT suggestion
+
+#new_bbox<- c(xmin = -117.346069, xmax = -116.815979, ymin = 32.516977, ymax = 32.912021 )  **Suuspect bb error was cause for object object error on dashboard - GPT suggestion
+
+#sd.sf<-new_bbox  **Suuspect bb error was cause for object object error on dashboard - GPT suggestion
+
+#bb <- st_bbox( c( xmin = -117.346069, xmax = -116.815979, 
+               #   ymax = 32.912021, ymin = 32.516977 ), 
+              # crs = st_crs("+init=epsg:4326"))  **neighborhoods tab looks fine without bbbox.
+
+```
+
+
+
+
+Community Demographics  
+=====================================  
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+these.variables <- c("pnhwht12", "pnhblk12", "phisp12", "pntv12", "pfb12", "polang12", 
+"phs12", "pcol12", "punemp12", "pflabf12", "pprof12", "pmanuf12", 
+"pvet12", "psemp12", "hinc12", "incpc12", "ppov12", "pown12", 
+"pvac12", "pmulti12", "mrent12", "mhmval12.x", "p30old12", "p10yrs12", 
+"p18und12", "p60up12", "p75up12", "pmar12", "pwds12", "pfhh12")
+
+dd.name <- c("Percent white, non-Hispanic", 
+                 "Percent black, non-Hispanic", 
+                "Percent Hispanic", 
+                 "Percent Native American race", 
+                "Percent foreign born", 
+                 "Percent speaking other language at home, age 5 plus", 
+                 "Percent with high school degree or less", 
+                 "Percent with 4-year college degree or more", 
+                 "Percent unemployed", 
+                  "Percent female labor force participation", 
+                 "Percent professional employees", 
+                 "Percent manufacturing employees", 
+                 "Percent veteran", 
+                  "Percent self-employed", 
+                 "Median HH income, total", 
+                  "Per capita income", 
+                 "Percent in poverty, total", 
+                  "Percent owner-occupied units", 
+                 "Percent vacant units",
+                  "Percent multi-family units", 
+                 "Median rent", 
+                  "Median home value", 
+                 "Percent structures more than 30 years old",
+                 "Percent HH in neighborhood 10 years or less", 
+                 "Percent 17 and under, total", 
+                  "Percent 60 and older, total",
+                 "Percent 75 and older, total", 
+                 "Percent currently married, not separated", 
+                 "Percent widowed, divorced and separated", 
+                 "Percent female-headed families with children")
+
+name_mapping <- setNames(dd.name, these.variables)
+
+choice_names = as.vector(name_mapping[these.variables])
+
+# replace these with descriptive labels 
+# from the data dictionary 
+#temp.names <- paste0( "Variabls", these.variables )
+
+radioButtons( inputId="demographics", 
+              label = h3("Census Variables"),
+              # choices = these.variables, 
+              choiceNames=choice_names,
+              choiceValues=these.variables,
+              selected="pnhwht12")
+
+
+
+```
+
+
+
+Row {.tabset}
+-------------------------------------
+
+
+### Choropleth Map
+
+
+```{r}
+
+renderPlot({
+
+# split the selected variable into deciles 
+  
+get_data <- 
+  reactive({
+             sd.sf <- 
+             sd.sf %>% 
+             mutate( q = ntile( get(input$demographics), 10 ) )  
+          })
+
+  
+ggplot( get_data() ) +
+    geom_sf( aes( fill = q ), color=NA ) +
+    coord_sf( datum=NA ) +
+    labs( title = paste0( "Choropleth of Select Demographics: ", toupper(input$demographics) ),
+          caption = "Source: Harmonized Census Files",
+          fill = "Population Deciles" ) +
+    scale_fill_gradientn( colours=rev(ocean.balance(10)), guide = "colourbar" ) + 
+    xlim( xmin = -13071745, xmax = -12980948 ) + 
+    ylim( ymin = 3811797, ymax = 3931462 )
+
+
+})
+
+```
+
+
+### Variable Distribution 
+
+```{r}
+renderPlot({
+
+# extract vector x from the data frame 
+# x <-  d[ "pnhwht12" ] %>% unlist()
+
+  
+get_variable_x <- reactive({ d[ input$demographics ] })
+
+x <- get_variable_x() %>% unlist()
+
+cut.points <- quantile( x, seq( 0, 1, 0.1 ) )
+
+hist( x, breaks=50, 
+      col="gray", border="white", yaxt="n",
+      main=paste0( "Histogram of variable ", toupper( input$demographics ) ),
+      xlab="red lines represent decile cut points" )
+
+abline( v=cut.points, col="darkred", lty=3, lwd=2 )
+
+
+})
+```
+
+
+
+
+Neighborhoods  
+===================================== 
+
+### Clusters  
+
+```{r}
+
+# define the bounding box corners 
+#bb <- st_bbox( c( xmin = -12519146, xmax = -12421368, 
+                  #ymax = 3965924, ymin = 3899074 ), 
+               #crs = st_crs("+init=epsg:3395"))            ##Removed the Bounding Box and it seems to generate the close enough overview of san diego. 
+
+
+# ADD YOUR CUSTOM LABELS TO THE CLUSTERS 
+
+sd2$cluster[ sd2$cluster == "1" ] <- "Baby Boomers"
+sd2$cluster[ sd2$cluster == "2" ] <- "Hipsters"
+sd2$cluster[ sd2$cluster == "3" ] <- "Young Professionals"
+sd2$cluster[ sd2$cluster == "4" ] <- "Working Class"
+sd2$cluster[ sd2$cluster == "5" ] <- "Leisure World"
+sd2$cluster[ sd2$cluster == "6" ] <- "Cultural Survivors"
+
+renderTmap({
+
+tmap_mode("view")
+tm_basemap( "CartoDB.Positron" )
+tm_shape( sd2) + 
+  tm_polygons( col="cluster", palette="Accent",
+               title="Community Types" ) 
+
+})
+```
+
+
+
+
+NH Change 2000-2010  
+===================================== 
+
+
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+button.labels <- c(
+  "Median Home Value 2000",
+  "Median Home Value 2010",
+  "Value Change 2000-2010",
+  "Growth in Home Value")
+button.values <- c(
+  "mhv.00",
+  "mhv.10",
+  "mhv.change",
+  "mhv.growth")
+
+name_mapping2 <- setNames(button.labels, button.values)
+
+choice_names2 = as.vector(name_mapping2[button.values])
+
+
+ 
+radioButtons( inputId="home.value",
+              label = h3("Home Values"),
+              choiceNames=choice_names2,
+              choiceValues=button.values,
+              selected="mhv.00")
+```
+
+
+
+
+Row {.tabset}
+-------------------------------------
+
+
+
+### Median Home Values
+
+
+```{r}
+
+renderPlot({
+
+# split the selected variable into deciles 
+  
+get_data <- 
+  reactive({
+             sd.sf <- 
+             sd.sf %>% 
+             mutate( q = ntile( get(input$home.value), 10 ) )  
+          })
+
+  
+ggplot( get_data() ) +
+    geom_sf( aes( fill = q ), color=NA ) +
+    coord_sf( datum=NA ) +
+    labs( title = paste0( "Spatial Distribution of Home Values: ", toupper(input$home.value) ),
+          caption = "Source: Harmonized Census Files",
+          fill = "Home Value Deciles" ) +
+    scale_fill_gradientn( colours=rev(ocean.balance(10)), guide = "colourbar" )+ 
+    xlim( xmin = -13071745, xmax = -12980948 ) + 
+    ylim( ymin = 3811797, ymax = 3931462 ) 
+
+})
+
+```
+
+
+### Variable Distribution 
+
+```{r}
+renderPlot({
+
+# extract vector x from the data frame 
+# x <-  d[ "pnhwht12" ] %>% unlist()
+
+  
+get_variable_x <- reactive({ d[ input$home.value ] }) ##by putting input$demographics here, the histogram is exactly the same between selections. The only thing that changes is the title above the graph. 
+
+x <- get_variable_x() %>% unlist() %>% as.numeric()
+x <- na.omit(x)
+cut.points <- quantile( x, seq( 0, 1, 0.1 ) )
+
+hist( x, breaks=50, 
+      col="gray", border="white", yaxt="n",
+      main=paste0( "Histogram of ", toupper( input$home.value ) ),
+      xlab="red lines represent decile cut points" )
+
+abline( v=cut.points, col="darkred", lty=3, lwd=2 )
+
+
+})
+```  
+
+
+
+
+
+
+
+Drivers of Change   
+===================================== 
+
+
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+button.labels <- c("Median Home Value 2000","Median Home Value 2010","Value Change 2000-2010","Growth in Home Value")
+button.values <- c("mhv.00","mhv.10","mhv.change","mhv.growth")
+  
+radioButtons( inputId="dv", 
+              label = h3("Select Your Dependent Variable"),
+              choiceNames=button.labels,
+              choiceValues=button.values,
+              selected="mhv.change")
+
+
+covariates <- c("pnhwht12", "pnhblk12", "phisp12", "pntv12", "pfb12", "polang12", 
+"phs12", "pcol12", "punemp12", "pflabf12", "pprof12", "pmanuf12", 
+"pvet12", "psemp12", "hinc12", "incpc12", "ppov12", "pown12", 
+"pvac12", "pmulti12", "mrent12", "mhmval12.x", "p30old12", "p10yrs12", 
+"p18und12", "p60up12", "p75up12", "pmar12", "pwds12", "pfhh12")
+
+covariate.labels <- c( "Percent white, non-Hispanic", 
+                 "Percent black, non-Hispanic", "Percent Hispanic", 
+                 "Percent Native American race", "Percent foreign born", 
+                 "Percent speaking other language at home, age 5 plus", 
+                 "Percent with high school degree or less", 
+                 "Percent with 4-year college degree or more", 
+                 "Percent unemployed", "Percent female labor force participation", 
+                 "Percent professional employees", 
+                 "Percent manufacturing employees", 
+                 "Percent veteran", "Percent self-employed", 
+                 "Median HH income, total", "Per capita income", 
+                 "Percent in poverty, total", "Percent owner-occupied units", 
+                 "Percent vacant units", "Percent multi-family units", 
+                 "Median rent", "Median home value", 
+                 "Percent structures more than 30 years old",
+                 "Percent HH in neighborhood 10 years or less", 
+                 "Percent 17 and under, total", "Percent 60 and older, total",
+                 "Percent 75 and older, total", 
+                 "Percent currently married, not separated", 
+                 "Percent widowed, divorced and separated", 
+                 "Percent female-headed families with children")
+#name_mapping3 <- setNames(covariate.labels, covariates)
+
+#choice_names3 = as.vector(covariate.labels[covariates])
+
+checkboxGroupInput(
+  inputId = "covariates",
+  label = h3("Select Variables for Your Model"),
+ # choices = covariates,I'm not sure why, but when i remove this the correct labels show up. 
+ choiceNames = covariate.labels,
+  choiceValues = covariates,
+  selected = c("pnhwht12", "pprof12", "pvac12")
+)
+
+
+
+
+
+
+
+
+```
+
+
+
+
+Row {.tabset}
+-------------------------------------
+
+
+
+### Predicting Change 
+
+```{r, results="asis"}
+
+# RUNNING A REGRESSION WITH USER INPUTS
+#
+# create a formula object
+# by constructing the formula from user selections 
+# as a string then casting as a formula object 
+# x.s <- c("x1","x2","x3" )
+# formula.text <- paste( "y", " ~ ", paste0( x.s, collapse=" + ") )
+# formula.object <- as.formula( formula.text )
+#
+# lm( formula.object, data=d )
+#
+# make sure all variables are in d
+
+
+  
+# check boxes return vectors 
+get_covariates <-  reactive({ input$covariates })
+
+
+renderUI({
+  
+covariates <- get_covariates() 
+
+formula.text <- paste0( input$dv, " ~ ", paste( covariates, collapse=" + " ) )
+fo <- as.formula( formula.text )
+
+m <- lm( fo, data=d )
+
+
+# HTML( "<div style='width: 60%; margin: 0px auto;'>" )
+HTML( 
+  
+  c("<br><br><br>",
+  "<div type='regression' style='width: 60%; margin: 0px auto;'>",
+  stargazer( m, type="html", omit.stat=c("rsq","f") ),
+  "</div>",
+  "<br><br><br>"
+  )
+  
+  )
+
+
+})
+
+# HTML( reg.table )
+```
+
+
+
+### Correlation Plots 
+
+```{r}
+panel.cor <- function(x, y, digits=2, prefix="", cex.cor)
+{
+usr <- par("usr"); on.exit(par(usr))
+par(usr = c(0, 1, 0, 1))
+r <- abs(cor(x, y))
+txt <- format(c(r, 0.123456789), digits=digits)[1]
+txt <- paste(prefix, txt, sep="")
+if(missing(cex.cor)) cex <- 0.8/strwidth(txt)
+
+test <- cor.test(x,y)
+
+Signif <- symnum(test$p.value, corr = FALSE, na = FALSE,
+              cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+              symbols = c("***", "**", "*", ".", " "))
+
+text(0.5, 0.5, txt, cex = 1.5 )
+text(.7, .8, Signif, cex=cex, col=2)
+}
+
+panel.smooth <- function (x, y, col = par("col"), bg = NA, pch = par("pch"),
+cex = 0.5, col.smooth = "red", span = 2/3, iter = 3, ...)
+{
+points(x, y, pch = 19, col = gray(0.7,0.2), bg = bg, cex = cex)
+ok <- is.finite(x) & is.finite(y)
+if (any(ok))
+lines(stats::lowess(x[ok], y[ok], f = span, iter = iter),
+col = col.smooth, lwd=2, ...)
+}
+
+
+jplot <- function( x1, x2, lab1="", lab2="", draw.line=T, ... )
+{
+
+plot( x1, x2,
+      pch=19, 
+      col=gray(0.6, alpha = 0.2), 
+      cex=0.5,  
+      bty = "n",
+      xlab=lab1, 
+      ylab=lab2, cex.lab=1.5,
+    ... )
+
+if( draw.line==T ){ 
+    ok <- is.finite(x1) & is.finite(x2)
+    lines( lowess(x2[ok]~x1[ok]), col="red", lwd=3 ) }
+}
+
+
+renderPlot({
+pairs(d[input$covariates], upper.panel=panel.cor, lower.panel=panel.smooth)
+})
+
+
+
+```
+
+
+
+
+
+<style>
+
+.chart-shim { overflow: auto; }
+ 
+table{
+   border-spacing:1px;
+   margin-top:30px;
+   margin-bottom:30px;
+   margin-left: auto;
+   margin-right: auto;
+   align:center} 
+
+td{ padding: 6px 10px 6px 10px } 
+
+th{ text-align: left; } 
+
+</style>
